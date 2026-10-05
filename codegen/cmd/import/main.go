@@ -14,8 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Command generate creates the API types and controllers of one AWS service
-// from the AWS SDK v2 API model, using the ACK code-generator as a library.
+// Command import imports managed resource kinds from
+// crossplane-contrib/provider-aws into provider-aws-v2.
 package main
 
 import (
@@ -26,43 +26,39 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/teeverr/provider-aws-v2/codegen/internal/generator"
+	"github.com/teeverr/provider-aws-v2/codegen/internal/importer"
 )
 
 func main() {
-	var o generator.Options
-	flag.StringVar(&o.Service, "service", "", "aws-sdk-go-v2 service package, e.g. servicecatalog (required)")
+	var o importer.Options
+	var kinds string
+	flag.StringVar(&o.Source, "source", "", "Root of a crossplane-contrib/provider-aws checkout (required)")
+	flag.StringVar(&o.Service, "service", "", "aws-sdk-go-v2 service package, e.g. rds (required)")
+	flag.StringVar(&kinds, "kinds", "", "Comma-separated kinds to import, e.g. DBInstance (required)")
 	flag.StringVar(&o.OutputDir, "output", "..", "Root directory of the provider repository")
-	flag.StringVar(&o.GeneratorConfig, "generator-config", "", "Path to generator-config.yaml (default <output>/apis/<service>/generator-config.yaml)")
 	flag.StringVar(&o.APIVersion, "api-version", "v1alpha1", "Kubernetes API version of the generated types")
 	flag.StringVar(&o.CacheDir, "cache-dir", defaultCacheDir(), "Directory for cached AWS API models")
 	flag.StringVar(&o.TemplateDir, "template-dir", "templates", "Directory with the code templates")
-	registriesOnly := flag.Bool("registries-only", false, "Only regenerate apis/zz_services.go and internal/controller/zz_services.go, e.g. after removing a service")
 	flag.Parse()
 
-	if *registriesOnly {
-		if err := generator.WriteRegistries(o.OutputDir); err != nil {
-			fail(err)
+	for _, k := range strings.Split(kinds, ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			o.Kinds = append(o.Kinds, k)
 		}
-		return
 	}
-	if o.Service == "" {
-		fmt.Fprintln(os.Stderr, "--service is required")
+	if o.Source == "" || o.Service == "" || len(o.Kinds) == 0 {
+		fmt.Fprintln(os.Stderr, "--source, --service and --kinds are required")
 		flag.Usage()
 		os.Exit(2)
 	}
-	o.Service = strings.ToLower(o.Service)
-	if err := generator.ResolveServiceModule(&o); err != nil {
-		fail(err)
+	r, err := importer.Run(context.Background(), o)
+	if r != nil {
+		fmt.Print(r.Markdown())
 	}
-	if err := generator.Run(context.Background(), o); err != nil {
-		fail(err)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
 	}
-}
-
-func fail(err error) {
-	fmt.Fprintln(os.Stderr, "error:", err)
-	os.Exit(1)
 }
 
 func defaultCacheDir() string {
